@@ -1,6 +1,14 @@
 # Real-time Animal Classifier for Mobile and Edge Devices
 
 Scalable microservices architecture for real-time image classification using AWS ECS, ALB, and WebSockets to identify animals in images. The application consists of a FastAPI backend for WebSocket-based image processing and a Streamlit frontend for user interaction.
+
+
+
+
+https://github.com/user-attachments/assets/9d135cd9-3133-4334-9cd8-c0f42023db6d
+
+
+
  
 ## Architecture
 
