@@ -1,4 +1,6 @@
-# Logs and temporary files
+# ===============================
+# Logs and Temporary Files
+# ===============================
 *.log
 *.tmp
 *.pid
@@ -7,75 +9,55 @@
 *.toc
 *.aux
 
-# Environment and configuration files
-.env
-.env.*
-*.envrc
-
-# OS-generated files (macOS, Windows)
-.DS_Store
-Thumbs.db
-
-# Python virtual environments (if you don't use a specific name like .venv)
-venv/
-env/
-ENV/
-
-# PyCharm project files
-.idea/
-
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
-
-# Coverage reports
+# Coverage Reports
 htmlcov/
 .coverage
 *.cover
-*.py[cod]
+*.coveragerc
+coverage.xml
 
-# Test and coverage reports (e.g., pytest)
+# Test and Build Directories
 .tox/
 .nox/
 .cache/
-coverage.xml
-*.coveragerc
-
-# AWS-specific files
-*.pem
-*.key
-.aws-sam/
-localstack/
-
-# Docker-related files
-Dockerfile.*
-docker-compose.*
-*.dockerignore
-
-# Node.js files (if using Node.js or frontend frameworks)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Temporary build files (if using build tools)
 dist/
 build/
 *.spec
 
-# Terraform files (if using Terraform for some infrastructure)
-*.tfstate
-*.tfstate.*
-.terraform/
-terraform.tfvars
+# ===============================
+# Environment and Configuration Files
+# ===============================
+.env
+.env.*
+*.envrc
+secrets/
 
+# ===============================
+# OS-Generated Files
+# ===============================
+# macOS
+.DS_Store
 
-# Python
+# Windows
+Thumbs.db
+
+# ===============================
+# Python Specific
+# ===============================
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
+
+# Virtual Environments
 env/
+ENV/
+venv/
+.venv
+.Python
+
+# Distribution / Packaging
 build/
 develop-eggs/
 dist/
@@ -91,44 +73,72 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-.env
-.venv
-venv/
-ENV/
 
-# CDK
-cdk.out/
-cdk.context.json
+# ===============================
+# IDE and Editor Specific
+# ===============================
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Temporary Files
 *.swp
-cdk.staging
-.cdk.staging
-.idea
-jsii-calc.js
 
-# Node (if using CDK with TypeScript)
+# ===============================
+# Jupyter Notebooks
+# ===============================
+.ipynb_checkpoints/
+
+# ===============================
+# AWS Specific
+# ===============================
+.aws/
+*.pem
+*.key
+.aws-sam/
+localstack/
+infrastructure/policy.json
+
+# ===============================
+# Docker
+# ===============================
+# Docker files
+Dockerfile.*
+docker-compose.*
+*.dockerignore
+
+# ===============================
+# Node.js and Frontend
+# ===============================
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# IDE
-.idea/
-.vscode/
-*.sublime-workspace
-*.sublime-project
+# ===============================
+# Terraform
+# ===============================
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
 
-# AWS
-.aws/
-*.pem
+# ===============================
+# AWS CDK
+# ===============================
+cdk.out/
+cdk.context.json
+cdk.staging/
+.cdk.staging/
+jsii-calc.js
 
-# Project specific
+# ===============================
+# Project Specific
+# ===============================
 infrastructure/cdk.context.json
-infrastructure/policy.json
-*.env
-.env*
-.envrc
-secrets/
-
-# OS
-.DS_Store
-Thumbs.db
