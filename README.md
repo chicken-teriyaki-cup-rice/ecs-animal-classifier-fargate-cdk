@@ -15,44 +15,59 @@ Scalable microservices architecture for real-time image classification using AWS
 ```mermaid
 flowchart TB
     subgraph internet["Internet"]
-        client((Internet))
+        client(("Client"))
     end
 
     subgraph vpc["VPC"]
-        subgraph alb["Load Balancers"]
-            balb["Backend ALB"]
-            falb["Frontend ALB"]
+        subgraph alb["Application Load Balancers"]
+            falb["Frontend ALB\nPort 80"]
+            balb["Backend ALB\nPort 80"]
         end
         
-        subgraph private["Private Subnets"]
+        subgraph private["Private Subnets with NAT"]
             subgraph ecs["ECS Cluster"]
-                be["Backend Service\n(Fargate)"]
-                fe["Frontend Service\n(Fargate)"]
+                subgraph frontend["Frontend Service"]
+                    fe["Fargate Tasks\nStreamlit:8501"]
+                end
+                
+                subgraph backend["Backend Service"]
+                    be["Fargate Tasks\nFastAPI:8000"]
+                end
             end
         end
 
-        subgraph db["Database"]
-            dynamo[("DynamoDB")]
+        subgraph sg["Security Groups"]
+            fsg["Frontend SG\nInbound: 8501"]
+            bsg["Backend SG\nInbound: 8000"]
         end
+    end
+
+    subgraph monitoring["Monitoring"]
+        logs["CloudWatch\nLogs"]
     end
 
     client --> falb
     client --> balb
     falb --> fe
     balb --> be
+    fe --> bsg
+    be --> fsg
+    fe --> logs
+    be --> logs
     fe <--> be
-    be <--> dynamo
 
     classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px
     classDef vpc fill:#e9e9e9,stroke:#666
     classDef alb fill:#FFE4B5,stroke:#d49d4f
     classDef service fill:#B0E0E6,stroke:#4682B4
-    classDef database fill:#DDA0DD,stroke:#9370DB
+    classDef security fill:#FFA07A,stroke:#FF6347
+    classDef monitoring fill:#98FB98,stroke:#3CB371
     
     class vpc vpc
-    class balb,falb alb
-    class be,fe service
-    class dynamo database
+    class falb,balb alb
+    class fe,be service
+    class fsg,bsg security
+    class logs monitoring
 ```
 
 ### Key Components
