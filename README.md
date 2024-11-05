@@ -130,7 +130,7 @@ The application is deployed on AWS using:
 │   ├── infrastructure_stack.py
 │   └── requirements.txt
 └── scripts
-    └── monitor-deployment.sh
+    └── deploy.sh
 ```
 
 ## Deployment Instructions
@@ -166,16 +166,15 @@ cdk deploy
 ```
 
 4. **Monitor Deployment**
-
 ```bash
-./scripts/monitor-deployment.sh
+./scripts/deploy.sh
 ```
 
 ## Monitoring and Debugging
 
-### Using the Monitoring Script
+### Using the Deployment Script
 
-The `monitor-deployment.sh` script provides real-time information about:
+The `deploy.sh` script provides real-time information about:
 
 - Service deployment status
 - Task health
