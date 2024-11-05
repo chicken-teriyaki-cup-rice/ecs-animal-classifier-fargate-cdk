@@ -157,7 +157,7 @@ docker tag animal-classifier-frontend:latest $AWS_ACCOUNT.dkr.ecr.$AWS_REGION.am
 docker push $AWS_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/animal-classifier-frontend:latest
 ```
 
-3. **Deploy Infrastructure**
+3. **Deploy Infrastructure Only (Manual Method)**
 
 ```bash
 cd infrastructure
@@ -165,21 +165,21 @@ pip install -r requirements.txt
 cdk deploy
 ```
 
-4. **Monitor Deployment**
+4. **Full Deployment (Recommended)**
 ```bash
 ./scripts/deploy.sh
 ```
 
-## Monitoring and Debugging
+## Deployment Process
 
 ### Using the Deployment Script
 
-The `deploy.sh` script provides real-time information about:
+The `deploy.sh` script handles the complete deployment process:
 
-- Service deployment status
-- Task health
-- Target group status
-- CloudWatch logs
+- Sets up ECR repositories
+- Builds and pushes Docker images
+- Deploys AWS infrastructure using CDK
+- Performs cleanup of local Docker images
 
 ### Manual Checks
 
