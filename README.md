@@ -20,30 +20,30 @@ flowchart TB
 
     subgraph vpc["VPC"]
         subgraph alb["Application Load Balancers"]
-            falb["Frontend ALB\nPort 80"]
-            balb["Backend ALB\nPort 80"]
+            falb["Frontend ALB Port 80"]
+            balb["Backend ALB Port 80"]
         end
         
         subgraph private["Private Subnets with NAT"]
             subgraph ecs["ECS Cluster"]
                 subgraph frontend["Frontend Service"]
-                    fe["Fargate Tasks\nStreamlit:8501"]
+                    fe["Fargate Tasks Streamlit:8501"]
                 end
                 
                 subgraph backend["Backend Service"]
-                    be["Fargate Tasks\nFastAPI:8000"]
+                    be["Fargate Tasks FastAPI:8000"]
                 end
             end
         end
 
         subgraph sg["Security Groups"]
-            fsg["Frontend SG\nInbound: 8501"]
-            bsg["Backend SG\nInbound: 8000"]
+            fsg["Frontend SG Inbound: 8501"]
+            bsg["Backend SG Inbound: 8000"]
         end
     end
 
     subgraph monitoring["Monitoring"]
-        logs["CloudWatch\nLogs"]
+        logs["CloudWatch Logs"]
     end
 
     client --> falb
