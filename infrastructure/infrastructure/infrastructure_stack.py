@@ -1,9 +1,9 @@
-import boto3
+from typing import Any
+
 from aws_cdk import (
     CfnOutput,
     Duration,
     Stack,
-    Tags,
 )
 from aws_cdk import (
     aws_certificatemanager as acm,
@@ -24,296 +24,262 @@ from aws_cdk import (
     aws_elasticloadbalancingv2 as elbv2,
 )
 from aws_cdk import (
+    aws_iam as iam,
+)
+from aws_cdk import (
     aws_logs as logs,
-)
-from aws_cdk import (
-    aws_route53 as route53,
-)
-from aws_cdk import (
-    aws_route53_targets as targets,
 )
 from constructs import Construct
 
 
 class AnimalClassifierStack(Stack):
-    def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
-        super().__init__(scope, construct_id, **kwargs)
+    def __init__(self, scope: Construct, id: str, certificate_arn: str, **kwargs: Any) -> None:
+        super().__init__(scope, id, **kwargs)
 
-        # Add stack-level tags
-        Tags.of(self).add("Environment", "Production")
-        Tags.of(self).add("Project", "AnimalClassifier")
-        Tags.of(self).add("ManagedBy", "CDK")
+        certificate = acm.Certificate.from_certificate_arn(self, "Certificate", certificate_arn)
 
-        # AWS account and region
-        account_id = Stack.of(self).account
-        region = Stack.of(self).region
-        domain_name = "isthisasquirrel.com"
-        backend_domain = f"backend.{domain_name}"
-        frontend_domain = f"frontend.{domain_name}"
+        backend_repository_name = self.node.try_get_context("backend_repository_name")
+        frontend_repository_name = self.node.try_get_context("frontend_repository_name")
 
-        # Reference Existing ECR Repositories
-        backend_repo = ecr.Repository.from_repository_name(
-            self, "BackendRepo", "animal-classifier-backend"
+        if not backend_repository_name or not frontend_repository_name:
+            raise ValueError("Both repository names must be provided in CDK context")
+
+        backend_repository = ecr.Repository.from_repository_name(
+            self, "BackendRepository", repository_name=backend_repository_name
         )
-        frontend_repo = ecr.Repository.from_repository_name(
-            self, "FrontendRepo", "animal-classifier-frontend"
+        frontend_repository = ecr.Repository.from_repository_name(
+            self, "FrontendRepository", repository_name=frontend_repository_name
         )
 
-        # Create VPC with custom CIDR
         vpc = ec2.Vpc(
-            self,
-            "AnimalClassifierVPC",
-            ip_addresses=ec2.IpAddresses.cidr("172.16.0.0/16"),
+            self, 
+            "AnimalClassifierVpc",
             max_azs=2,
             nat_gateways=1,
-            subnet_configuration=[
-                ec2.SubnetConfiguration(
-                    name="Public",
-                    subnet_type=ec2.SubnetType.PUBLIC,
-                    cidr_mask=24,
-                ),
-                ec2.SubnetConfiguration(
-                    name="Private",
-                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
-                    cidr_mask=24,
-                ),
-            ],
         )
 
-        # Create ECS Cluster
         cluster = ecs.Cluster(
-            self,
-            "AnimalClassifierCluster",
+            self, 
+            "AnimalClassifierCluster", 
             vpc=vpc,
             container_insights=True,
         )
 
-        # Load SSL Certificate
-        certificate_arn = self.node.try_get_context("CERTIFICATE_ARN")
-        if not certificate_arn:
-            raise ValueError("CERTIFICATE_ARN context variable is required")
-
-        certificate = acm.Certificate.from_certificate_arn(
-            self, "AnimalClassifierCertificate", certificate_arn
+        frontend_security_group = ec2.SecurityGroup(
+            self, 
+            "FrontendSecurityGroup",
+            vpc=vpc,
+            allow_all_outbound=True,
+            description="Security group for Streamlit frontend"
         )
 
-        # Define runtime platform for x86_64
-        runtime_platform = ecs.RuntimePlatform(
-            operating_system_family=ecs.OperatingSystemFamily.LINUX,
-            cpu_architecture=ecs.CpuArchitecture.X86_64,
+        backend_security_group = ec2.SecurityGroup(
+            self, 
+            "BackendSecurityGroup",
+            vpc=vpc,
+            allow_all_outbound=True,
+            description="Security group for backend API"
         )
 
-        # Create Log Groups
-        backend_log_group = logs.LogGroup(
-            self,
-            "BackendLogGroup",
+        backend_security_group.add_ingress_rule(
+            peer=frontend_security_group,
+            connection=ec2.Port.tcp(8000),
+            description="Allow frontend to backend"
+        )
+
+        frontend_security_group.add_ingress_rule(
+            peer=ec2.Peer.any_ipv4(),
+            connection=ec2.Port.tcp(8501),
+            description="Allow ALB to Streamlit"
+        )
+
+        backend_security_group.add_ingress_rule(
+            peer=ec2.Peer.any_ipv4(),
+            connection=ec2.Port.tcp(8000),
+            description="Allow ALB to backend"
+        )
+
+        execution_role = iam.Role(
+            self, 
+            "ExecutionRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+        execution_role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name(
+                "service-role/AmazonECSTaskExecutionRolePolicy"
+            )
+        )
+        backend_repository.grant_pull(execution_role)
+        frontend_repository.grant_pull(execution_role)
+
+        task_role = iam.Role(
+            self, 
+            "TaskRole",
+            assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        )
+
+        log_group = logs.LogGroup(
+            self, 
+            "AnimalClassifierLogGroup",
             retention=logs.RetentionDays.ONE_WEEK,
         )
 
-        frontend_log_group = logs.LogGroup(
-            self,
-            "FrontendLogGroup",
-            retention=logs.RetentionDays.ONE_WEEK,
+        backend_task_definition = ecs.FargateTaskDefinition(
+            self, 
+            "BackendTaskDef",
+            memory_limit_mib=1024,
+            cpu=512,
+            task_role=task_role,
+            execution_role=execution_role,
+        )
+        
+        backend_container = backend_task_definition.add_container(
+            "BackendContainer",
+            image=ecs.ContainerImage.from_ecr_repository(backend_repository, tag="latest"),
+            logging=ecs.LogDriver.aws_logs(
+                stream_prefix="Backend",
+                log_group=log_group,
+            ),
+            environment={
+                "LOG_LEVEL": "INFO",
+                "CORS_ORIGINS": "*",
+                "PORT": "8000",
+                "HOST": "0.0.0.0",
+            },
+        )
+        
+        backend_container.add_port_mappings(
+            ecs.PortMapping(
+                container_port=8000,
+                protocol=ecs.Protocol.TCP
+            )
         )
 
-        # Backend Service with Health Check Configuration
-        # Backend Service with Health Check Configuration
+        frontend_task_definition = ecs.FargateTaskDefinition(
+            self, 
+            "FrontendTaskDef",
+            memory_limit_mib=1024,
+            cpu=512,
+            task_role=task_role,
+            execution_role=execution_role,
+        )
+        
+        frontend_container = frontend_task_definition.add_container(
+            "FrontendContainer",
+            image=ecs.ContainerImage.from_ecr_repository(frontend_repository, tag="latest"),
+            logging=ecs.LogDriver.aws_logs(
+                stream_prefix="Frontend",
+                log_group=log_group,
+            ),
+            environment={
+                "LOG_LEVEL": "DEBUG",
+                "MAX_FILE_SIZE_MB": "5",
+                "DEFAULT_THRESHOLD": "0.3",
+                "WEBSOCKET_TIMEOUT": "30",
+                "STREAMLIT_SERVER_PORT": "8501",
+                "STREAMLIT_SERVER_ADDRESS": "0.0.0.0",
+                "STREAMLIT_SERVER_HEADLESS": "true",
+            },
+        )
+        
+        frontend_container.add_port_mappings(
+            ecs.PortMapping(
+                container_port=8501,
+                protocol=ecs.Protocol.TCP
+            )
+        )
+
         backend_service = ecs_patterns.ApplicationLoadBalancedFargateService(
-            self,
+            self, 
             "BackendService",
             cluster=cluster,
-            cpu=1024,
-            memory_limit_mib=2048,
-            runtime_platform=runtime_platform,
-            task_image_options=ecs_patterns.ApplicationLoadBalancedTaskImageOptions(
-                image=ecs.ContainerImage.from_ecr_repository(
-                    backend_repo, tag="latest"
-                ),
-                container_port=8000,
-                container_name="web",
-                environment={
-                    "PYTHONUNBUFFERED": "1",
-                    "IMAGE_VERSION": "v3.3",
-                    "WS_PING_INTERVAL": "20",
-                    "WS_PING_TIMEOUT": "20",
-                    "ALLOWED_ORIGINS": f"https://{domain_name},https://frontend.{domain_name},http://localhost:8501",
-                },
-                log_driver=ecs.LogDrivers.aws_logs(
-                    log_group=backend_log_group,
-                    stream_prefix="backend",
-                ),
-            ),
+            task_definition=backend_task_definition,
             public_load_balancer=True,
+            assign_public_ip=True,
+            security_groups=[backend_security_group],
             desired_count=1,
-            certificate=certificate,
-            protocol=elbv2.ApplicationProtocol.HTTPS,
-            listener_port=443,
+            protocol=elbv2.ApplicationProtocol.HTTP,
             target_protocol=elbv2.ApplicationProtocol.HTTP,
-            idle_timeout=Duration.seconds(300)
+            listener_port=80,
+            task_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            health_check_grace_period=Duration.seconds(120),
         )
 
-        # Add container healthcheck
-        backend_service.task_definition.default_container.health_check = ecs.HealthCheck(
-            command=["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
-            interval=Duration.seconds(30),
-            timeout=Duration.seconds(5),
-            retries=3,
-            start_period=Duration.seconds(60)
-        )
-
-        # Configure ALB health check
-       # In your infrastructure_stack.py
         backend_service.target_group.configure_health_check(
             path="/health",
+            port="8000",
             healthy_http_codes="200",
-            interval=Duration.seconds(30),
-            timeout=Duration.seconds(5),
-            healthy_threshold_count=2,
-            unhealthy_threshold_count=3,
-            protocol=elbv2.Protocol.HTTP  # Make sure this is set correctly
+            interval=Duration.seconds(60),
+            timeout=Duration.seconds(30)
         )
 
-        # Add WebSocket support to the listener
         backend_service.listener.add_action(
-            "WebSocketUpgrade",
-            priority=1,
-            action=elbv2.ListenerAction.forward([backend_service.target_group]),
+            "BackendRoutes",
+            action=elbv2.ListenerAction.forward(
+                target_groups=[backend_service.target_group]
+            ),
             conditions=[
-                elbv2.ListenerCondition.path_patterns(["/ws"]),
-                elbv2.ListenerCondition.http_header("Upgrade", ["websocket"])
-            ]
-        )     # Add WebSocket support to the listener 
-        # Frontend Service
+                elbv2.ListenerCondition.path_patterns(["/ws", "/api/*", "/health"])
+            ],
+            priority=50
+        )
+
+        backend_service.listener.add_action(
+            "WebSocketRoutes",
+            action=elbv2.ListenerAction.forward(
+                target_groups=[backend_service.target_group]
+            ),
+            conditions=[
+                elbv2.ListenerCondition.path_patterns(["/ws"])
+            ],
+            priority=51
+        )
+
+        backend_url = f"ws://{backend_service.load_balancer.load_balancer_dns_name}/ws"
+        frontend_container.add_environment("LOG_LEVEL", "DEBUG")
+        frontend_container.add_environment("MAX_FILE_SIZE_MB", "5")
+        frontend_container.add_environment("DEFAULT_THRESHOLD", "0.3")
+        frontend_container.add_environment("WEBSOCKET_TIMEOUT", "30")
+        frontend_container.add_environment("STREAMLIT_SERVER_PORT", "8501")
+        frontend_container.add_environment("STREAMLIT_SERVER_ADDRESS", "0.0.0.0")
+        frontend_container.add_environment("STREAMLIT_SERVER_HEADLESS", "true")
+        frontend_container.add_environment("WEBSOCKET_ENDPOINT", backend_url)
+
         frontend_service = ecs_patterns.ApplicationLoadBalancedFargateService(
-            self,
+            self, 
             "FrontendService",
             cluster=cluster,
-            cpu=512,
-            memory_limit_mib=1024,
-            runtime_platform=runtime_platform,
-            task_image_options=ecs_patterns.ApplicationLoadBalancedTaskImageOptions(
-                image=ecs.ContainerImage.from_ecr_repository(
-                    frontend_repo, tag="latest"
-                ),
-                container_port=8501,
-                container_name="streamlit",
-                environment={
-                    "PYTHONUNBUFFERED": "1",
-                    "BACKEND_URL": f"wss://{backend_domain}/ws",
-                    "IMAGE_VERSION": "v2",
-                    "BACKEND_WS_RETRY_COUNT": "3",
-                    "BACKEND_WS_RETRY_DELAY": "1000",
-                },
-                log_driver=ecs.LogDrivers.aws_logs(
-                    log_group=frontend_log_group,
-                    stream_prefix="frontend",
-                ),
-            ),
+            task_definition=frontend_task_definition,
             public_load_balancer=True,
+            assign_public_ip=True,
+            security_groups=[frontend_security_group],
             desired_count=1,
-            certificate=certificate,
-            protocol=elbv2.ApplicationProtocol.HTTPS,
-            listener_port=443,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            target_protocol=elbv2.ApplicationProtocol.HTTP,
+            listener_port=80,
+            task_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            health_check_grace_period=Duration.seconds(120),
         )
 
-        # Configure frontend auto-scaling
-        frontend_scaling = frontend_service.service.auto_scale_task_count(
-            min_capacity=1,
-            max_capacity=2
-        )
-        frontend_scaling.scale_on_cpu_utilization(
-            "CpuScaling",
-            target_utilization_percent=70,
-            scale_in_cooldown=Duration.seconds(60),
-            scale_out_cooldown=Duration.seconds(60)
-        )
-
-        # Import the hosted zone
-        hosted_zone = route53.HostedZone.from_lookup(
-            self, "HostedZone", domain_name=domain_name
-        )
-
-        # Initialize Route 53 client
-        client = boto3.client("route53")
-
-        # Function to check if a Route 53 record exists
-        def record_exists(record_name):
-            response = client.list_resource_record_sets(
-                HostedZoneId=hosted_zone.hosted_zone_id,
-                StartRecordName=record_name,
-                StartRecordType="A",
-                MaxItems="1"
-            )
-            return any(record['Name'].strip('.') == record_name for record in response['ResourceRecordSets'])
-
-        # Conditionally create the Frontend and Backend Route 53 records
-        if not record_exists(frontend_domain):
-            route53.ARecord(
-                self,
-                "FrontendAliasRecord",
-                zone=hosted_zone,
-                target=route53.RecordTarget.from_alias(
-                    targets.LoadBalancerTarget(frontend_service.load_balancer)
-                ),
-                record_name=frontend_domain,
-            )
-
-        if not record_exists(backend_domain):
-            route53.ARecord(
-                self,
-                "BackendAliasRecord",
-                zone=hosted_zone,
-                target=route53.RecordTarget.from_alias(
-                    targets.LoadBalancerTarget(backend_service.load_balancer)
-                ),
-                record_name=backend_domain,
-            )
-
-        # Stack Outputs
-        CfnOutput(
-            self,
-            "BackendDomain",
-            value=backend_domain,
-            description="Backend domain name",
+        frontend_service.target_group.configure_health_check(
+            path="/_stcore/health",
+            port="8501",
+            interval=Duration.seconds(60),
+            timeout=Duration.seconds(30),
+            healthy_threshold_count=2,
+            unhealthy_threshold_count=5,
         )
 
         CfnOutput(
-            self,
-            "BackendUrl",
-            value=f"https://{backend_service.load_balancer.load_balancer_dns_name}",
-            description="Backend ALB URL",
+            self, 
+            "BackendServiceURL",
+            value=f"http://{backend_service.load_balancer.load_balancer_dns_name}",
+            description="Backend service URL",
         )
 
         CfnOutput(
-            self,
-            "FrontendDomain",
-            value=frontend_domain,
-            description="Frontend domain name",
-        )
-
-        CfnOutput(
-            self,
-            "FrontendUrl",
-            value=f"https://{frontend_service.load_balancer.load_balancer_dns_name}",
-            description="Frontend ALB URL",
-        )
-
-        CfnOutput(
-            self,
-            "BackendAlbDns",
-            value=backend_service.load_balancer.load_balancer_dns_name,
-            description="Backend ALB DNS name",
-        )
-
-        CfnOutput(
-            self,
-            "FrontendAlbDns",
-            value=frontend_service.load_balancer.load_balancer_dns_name,
-            description="Frontend ALB DNS name",
-        )
-
-        CfnOutput(self, "VpcId", value=vpc.vpc_id, description="VPC ID")
-
-        CfnOutput(
-            self, "VpcCidr", value=vpc.vpc_cidr_block, description="VPC CIDR range"
+            self, 
+            "FrontendServiceURL",
+            value=f"http://{frontend_service.load_balancer.load_balancer_dns_name}",
+            description="Frontend service URL",
         )

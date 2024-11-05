@@ -1,219 +1,141 @@
 import base64
-import io
+import json
 import logging
 import os
-from typing import Any, Dict, Optional
+from datetime import datetime
+from io import BytesIO
+from pathlib import Path
+from typing import Optional
 
-import tensorflow as tf
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, status
+import torch
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from PIL import Image
-from starlette.websockets import WebSocketState
+from pydantic import BaseModel
+from torchvision import models, transforms
 
-# Set up logging
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+numeric_level = getattr(logging, log_level, logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=numeric_level,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("animal-classifier-backend")
 
 app = FastAPI(title="Animal Classifier API")
 
-# Get allowed origins from environment or use defaults
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
-if not ALLOWED_ORIGINS or ALLOWED_ORIGINS[0] == "":
-    ALLOWED_ORIGINS = [
-        "https://isthisasquirrel.com",
-        "https://www.isthisasquirrel.com",
-        "https://frontend.isthisasquirrel.com",
-        "http://localhost:8501",
-        "http://127.0.0.1:8501",
-    ]
-
-# Enhanced CORS middleware configuration
+allowed_origins = os.getenv("CORS_ORIGINS", "https://your-frontend-domain.com").split(",")
+cors_config = {
+    "origins": allowed_origins,
+    "methods": ["*"],
+    "headers": os.getenv("CORS_ALLOWED_HEADERS", "*").split(","),
+    "credentials": True,
+}
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*", "Upgrade", "Connection"],  # Add WebSocket headers
-    expose_headers=["*"],
-    max_age=3600,
+    allow_origins=cors_config["origins"],
+    allow_credentials=cors_config["credentials"],
+    allow_methods=cors_config["methods"],
+    allow_headers=cors_config["headers"],
 )
 
-# Global variables for model
-model: Optional[tf.keras.Model] = None
-image_size = (224, 224)
+device = torch.device("cpu")
+logger.info(f"Using device: {device}")
+
+try:
+    base_path = Path(__file__).parent
+    class_file = base_path / "imagenet_class_index.json"
+    if not class_file.exists():
+        logger.error("imagenet_class_index.json is missing.")
+    else:
+        with open(class_file, "r") as f:
+            class_idx = json.load(f)
+        logger.debug(f"class_idx content: {class_idx}")
+except Exception as e:
+    logger.error(f"Error loading class labels: {e}")
+    class_idx = {str(i): [f"class_{i}"] for i in range(1000)}
+
+model: Optional[torch.nn.Module] = None
+is_model_ready = False
+
+preprocess = transforms.Compose([
+    transforms.Resize(256),
+    transforms.CenterCrop(223),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.223, 0.225]),
+])
 
 @app.on_event("startup")
 async def load_model():
-    """Initialize the model on startup."""
-    global model
-    
-    logger.info("Loading MobileNetV2 model...")
-    
+    global model, is_model_ready
+    logger.info("Starting model initialization...")
     try:
-        model = tf.keras.applications.MobileNetV2(
-            input_shape=(224, 224, 3),
-            include_top=True,
-            weights='imagenet'
-        )
-        
-        # Warmup
-        test_tensor = tf.zeros((1, 224, 224, 3))
-        _ = model(test_tensor)
-        
+        model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
+        model.eval()
+        model.to(device)
         logger.info("Model loaded successfully")
+        is_model_ready = True
     except Exception as e:
         logger.error(f"Failed to load model: {e}", exc_info=True)
-        raise
-
-def process_image(image_bytes: bytes) -> tf.Tensor:
-    """Process the input image bytes for model prediction."""
-    try:
-        image = Image.open(io.BytesIO(image_bytes))
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        
-        image = image.resize(image_size, Image.Resampling.LANCZOS)
-        img_array = tf.keras.preprocessing.image.img_to_array(image)
-        img_array = tf.expand_dims(img_array, 0)
-        return tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
-    except Exception as e:
-        logger.error(f"Image processing error: {e}", exc_info=True)
-        raise
-
-async def handle_prediction(image_tensor: tf.Tensor, threshold: float) -> Dict[str, Any]:
-    """Handle the prediction logic."""
-    try:
-        predictions = model(image_tensor)
-        probs = tf.nn.softmax(predictions)
-        
-        top_k_values, top_k_indices = tf.nn.top_k(probs[0], k=5)
-        
-        scores = top_k_values.numpy().tolist()
-        indices = top_k_indices.numpy().tolist()
-        
-        labels = [
-            tf.keras.applications.mobilenet_v2.decode_predictions(predictions, top=1)[0][i][1]
-            for i in range(len(indices))
-        ]
-        
-        filtered_predictions = [
-            {"label": label, "score": float(score)}
-            for label, score in zip(labels, scores)
-            if score >= threshold
-        ]
-        
-        return {
-            "predictions": filtered_predictions,
-            "total_predictions": len(scores),
-            "filtered_predictions": len(filtered_predictions)
-        }
-    except Exception as e:
-        logger.error(f"Prediction error: {e}", exc_info=True)
-        raise
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time image classification."""
-    try:
-        # Log connection attempt with origin
-        client_host = websocket.client.host
-        logger.info(f"WebSocket connection attempt from {client_host}")
-        
-        # Check origin
-        origin = websocket.headers.get("origin", "")
-        if origin and origin not in ALLOWED_ORIGINS:
-            logger.warning(f"Rejected WebSocket connection from unauthorized origin: {origin}")
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-            
-        # Accept the connection
-        await websocket.accept()
-        logger.info(f"WebSocket connection accepted from {client_host}")
-
-        while True:
-            try:
-                # Receive data
-                data = await websocket.receive_json()
-                logger.info(f"Received data from {client_host}")
-                
-                # Extract and validate image data
-                image_data = data.get('image')
-                if not image_data:
-                    raise ValueError("Invalid or missing 'image' data")
-
-                # Parse threshold
-                threshold = float(data.get('threshold', 0.0))
-                
-                # Process base64 image
-                if ',' in image_data:
-                    _, encoded = image_data.split(',', 1)
-                else:
-                    encoded = image_data
-                    
-                image_bytes = base64.b64decode(encoded)
-                
-                # Process image and get predictions
-                img_tensor = process_image(image_bytes)
-                result = await handle_prediction(img_tensor, threshold)
-                
-                # Send results
-                if websocket.application_state == WebSocketState.CONNECTED:
-                    await websocket.send_json(result)
-                    logger.info(f"Sent {result['filtered_predictions']} predictions to {client_host}")
-
-            except ValueError as e:
-                logger.error(f"Value error from {client_host}: {e}")
-                if websocket.application_state == WebSocketState.CONNECTED:
-                    await websocket.send_json({"error": str(e)})
-                
-            except Exception as e:
-                logger.error(f"Error processing request from {client_host}: {e}", exc_info=True)
-                if websocket.application_state == WebSocketState.CONNECTED:
-                    await websocket.send_json({"error": "Internal server error"})
-
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket connection closed by client: {client_host}")
-    except Exception as e:
-        logger.error(f"WebSocket error for {client_host}: {e}", exc_info=True)
-    finally:
-        if websocket.application_state == WebSocketState.CONNECTED:
-            await websocket.close()
-            logger.info(f"WebSocket connection closed for {client_host}")
+        is_model_ready = False
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "model_loaded": model is not None,
-        "allowed_origins": ALLOWED_ORIGINS
-    }
+    status = "healthy" if is_model_ready else "unhealthy"
+    return {"status": status, "timestamp": datetime.utcnow().isoformat()}
 
-# Add OPTIONS endpoint for WebSocket path
-@app.options("/ws")
-async def websocket_options():
-    """Handle OPTIONS requests for WebSocket endpoint."""
-    return JSONResponse(
-        status_code=200,
-        content={"message": "WebSocket connection allowed"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS, CONNECT",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Max-Age": "3600",
-        },
-    )
+class PredictionRequest(BaseModel):
+    image: str
+    threshold: float = 0.5
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Middleware to log all requests."""
-    logger.info(f"Request: {request.method} {request.url}")
-    logger.info(f"Client Host: {request.client.host}")
-    logger.info(f"Headers: {request.headers}")
-    
-    response = await call_next(request)
-    return response
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    logger.info("WebSocket connection accepted")
+    try:
+        while True:
+            data = await websocket.receive_text()
+            request = json.loads(data)
+            prediction_request = PredictionRequest(**request)
+            response = await make_prediction(prediction_request)
+            await websocket.send_text(json.dumps(response))
+    except WebSocketDisconnect:
+        logger.info("WebSocket connection closed")
+    except Exception as e:
+        logger.error(f"Error during WebSocket communication: {e}", exc_info=True)
+        await websocket.close()
+
+async def make_prediction(prediction_request: PredictionRequest):
+    if not is_model_ready:
+        return {"error": "Model is not ready. Please try again later."}
+
+    try:
+        image_data = base64.b64decode(prediction_request.image.split(",")[1])
+        image = Image.open(BytesIO(image_data)).convert("RGB")
+        input_tensor = preprocess(image).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            outputs = model(input_tensor)
+            probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
+
+        threshold = prediction_request.threshold
+        predictions = []
+        for idx, prob in enumerate(probabilities):
+            prob_value = prob.item()
+            if prob_value >= threshold:
+                label = class_idx.get(str(idx), [f"class_{idx}"])[1]
+                predictions.append({"label": label, "score": prob_value})
+
+        predictions.sort(key=lambda x: x["score"], reverse=True)
+        return {
+            "predictions": predictions,
+            "total_predictions": len(probabilities),
+            "filtered_predictions": len(predictions),
+        }
+    except Exception as e:
+        logger.error(f"Prediction error: {e}", exc_info=True)
+        return {"error": "Failed to process the image. Please ensure it is a valid image."}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), log_level=log_level.lower())

@@ -6,24 +6,23 @@ from dotenv import load_dotenv
 
 from infrastructure.infrastructure_stack import AnimalClassifierStack
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Set default values if environment variables are not set
 account = os.getenv('CDK_DEFAULT_ACCOUNT')
-region = os.getenv('CDK_DEFAULT_REGION', 'us-east-1')  # Defaults to us-east-1 if not set
+region = os.getenv('CDK_DEFAULT_REGION', 'us-east-1')
+certificate_arn = os.getenv('CERTIFICATE_ARN')
 
-# Assert that required environment variables are provided
 assert account, "CDK_DEFAULT_ACCOUNT environment variable is required"
+assert certificate_arn, "CERTIFICATE_ARN environment variable is required"
 
 app = cdk.App()
 
-# Create the stack with explicit region
 AnimalClassifierStack(app, "AnimalClassifierStack",
     env=cdk.Environment(
         account=account,
         region=region
     ),
+    certificate_arn=certificate_arn,
     description="Animal Classifier application with FastAPI backend and Streamlit frontend"
 )
 
