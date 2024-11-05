@@ -7,53 +7,84 @@ An image classification application that uses MobileNetV2 to identify animals in
 ## Architecture
 
 ```mermaid
-graph TB
-    subgraph "AWS Cloud"
-        subgraph "VPC (172.16.0.0/16)"
-            subgraph "Public Subnets"
-                ALB1[Frontend ALB]
-                ALB2[Backend ALB]
-            end
+graph TD
+    %% Define external entities
+    Internet((Internet))
 
-            subgraph "Private Subnets"
-                subgraph "ECS Cluster"
-                    FrontendService[Frontend ServiceFargate 512 CPU1024 MB RAM]
-                    BackendService[Backend ServiceFargate 1024 CPU2048 MB RAM]
-                end
-            end
+    %% Define VPC and its components
+    subgraph VPC
+        subgraph ECS_Cluster [ECS Cluster]
+            BackendService[Fargate Backend Service]
+            FrontendService[Fargate Frontend Service]
         end
 
-        Route53[Route 53]
-        ACM[ACM Certificate]
-        ECR[ECR Repositories]
-        CW[CloudWatch Logs]
+        subgraph ECR_Repositories
+            BackendRepo[Backend ECR Repository]
+            FrontendRepo[Frontend ECR Repository]
+        end
+
+        subgraph IAM_Roles
+            ExecutionRole[Execution Role]
+            TaskRole[Task Role]
+        end
+
+        subgraph Security_Groups
+            FrontendSG[Frontend Security Group]
+            BackendSG[Backend Security Group]
+        end
+
+        subgraph Load_Balancers
+            FrontendALB[Frontend ALB]
+            BackendALB[Backend ALB]
+        end
+
+        subgraph Logging
+            LogGroup[CloudWatch Log Group]
+        end
     end
 
-    Internet((Internet)) --> Route53
-    Route53 -->|isthisasquirrel.com| ALB1
-    Route53 -->|backend.isthisasquirrel.com| ALB2
+    %% Internet to Load Balancers
+    Internet --> FrontendALB
+    Internet --> BackendALB
 
-    ALB1 -->|HTTPS| FrontendService
-    ALB2 -->|HTTPS/WSS| BackendService
+    %% Load Balancers to Services
+    FrontendALB -->|HTTP:80| FrontendService
+    BackendALB -->|HTTP:80| BackendService
 
-    ACM -.->|SSL/TLS| ALB1
-    ACM -.->|SSL/TLS| ALB2
+    %% Services to Repositories
+    FrontendService -->|Uses Image| FrontendRepo
+    BackendService -->|Uses Image| BackendRepo
 
-    FrontendService -->|wss://| BackendService
+    %% Services to IAM Roles
+    FrontendService -->|Uses| ExecutionRole
+    FrontendService -->|Uses| TaskRole
+    BackendService -->|Uses| ExecutionRole
+    BackendService -->|Uses| TaskRole
 
-    FrontendService -.->|Logs| CW
-    BackendService -.->|Logs| CW
+    %% IAM Roles to Repositories
+    ExecutionRole -->|Pull from| BackendRepo
+    ExecutionRole -->|Pull from| FrontendRepo
 
-    ECR -.->|Images| FrontendService
-    ECR -.->|Images| BackendService
+    %% Services to Security Groups
+    FrontendService --> FrontendSG
+    BackendService --> BackendSG
 
-    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px;
-    classDef service fill:#3F8624,stroke:#232F3E,stroke-width:2px;
-    classDef network fill:#FF4F8B,stroke:#232F3E,stroke-width:2px;
+    %% Security Group Rules
+    FrontendALB -->|Allows ingress on 8501| FrontendSG
+    FrontendService -->|Allows ingress on 8000| BackendSG
+    BackendALB -->|Allows ingress on 8000| BackendSG
 
-    class Route53,ACM,ECR,CW aws;
-    class FrontendService,BackendService service;
-    class ALB1,ALB2,Internet network;
+    %% Services to Logging
+    FrontendService -->|Logs to| LogGroup
+    BackendService -->|Logs to| LogGroup
+
+    %% Outputs
+    FrontendALB -->|Frontend URL| FrontendURL[Frontend Service URL]
+    BackendALB -->|Backend URL| BackendURL[Backend Service URL]
+
+    %% Styling for clarity
+    classDef external fill:#f9f,stroke:#333,stroke-width:2px;
+    class Internet external;
 ```
 
 ## Infrastructure
