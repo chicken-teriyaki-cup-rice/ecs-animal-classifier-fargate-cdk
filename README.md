@@ -1,10 +1,9 @@
-# "Real-time Animal Classifier for Mobile and Edge Devices
+# Real-time Animal Classifier for Mobile and Edge Devices
 
 Scalable microservices architecture for real-time image classification using AWS ECS, ALB, and WebSockets to identify animals in images. The application consists of a FastAPI backend for WebSocket-based image processing and a Streamlit frontend for user interaction.
  
 ## Architecture
 
- 
 ```mermaid
 graph TB
     subgraph VPC
@@ -71,7 +70,7 @@ The application is deployed on AWS using:
 - Both services run in private subnets with NAT gateway for outbound internet access
 - Inbound traffic is routed through Application Load Balancers
 
-### Key Components
+### Technical Components
 
 - Networking stack (VPC, subnets, security groups)
 - ECS Cluster with Fargate tasks
@@ -208,13 +207,11 @@ streamlit run app.py
 Common issues and solutions:
 
 1. **WebSocket Connection Issues**
-
    - Check DNS propagation
    - Verify security group rules
    - Check SSL certificate validity
 
 2. **Container Startup Issues**
-
    - Check CloudWatch logs
    - Verify environment variables
    - Check container health checks
