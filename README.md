@@ -1,11 +1,11 @@
-# Animal Classifier Application
+# "Real-time Animal Classifier for Mobile and Edge Devices
 
-Scalable microservices architecture for real-time image classification using AWS ECS, ALB, and WebSockets
-
-An image classification application that uses MobileNetV2 to identify animals in images. The application consists of a FastAPI backend for WebSocket-based image processing and a Streamlit frontend for user interaction.
-
+Scalable microservices architecture for real-time image classification using AWS ECS, ALB, and WebSockets to identify animals in images. The application consists of a FastAPI backend for WebSocket-based image processing and a Streamlit frontend for user interaction.
+ 
 ## Architecture
-```
+
+ 
+```mermaid
 graph TB
     subgraph VPC
         subgraph "Private Subnets"
@@ -46,7 +46,16 @@ graph TB
     class Internet internet;
 ```
 
-## Infrastructure
+### Key Components
+
+- **VPC**: Isolated network environment with private subnets
+- **ECS Cluster**: Manages Fargate tasks for both frontend and backend services
+- **Frontend Service**: Streamlit application running on port 8501
+- **Backend Service**: API service running on port 8000
+- **Application Load Balancers**: Separate ALBs for frontend and backend services
+- **ECR Repositories**: Store Docker images for both services
+
+### Infrastructure
 
 The application is deployed on AWS using:
 
@@ -56,11 +65,19 @@ The application is deployed on AWS using:
 - ACM for SSL/TLS certificates
 - CloudWatch for logging and monitoring
 
+### Service Communication
+
+- Frontend service communicates with backend service via WebSocket
+- Both services run in private subnets with NAT gateway for outbound internet access
+- Inbound traffic is routed through Application Load Balancers
+
 ### Key Components
 
-- **Frontend**: Streamlit application served via HTTPS
-- **Backend**: FastAPI application with WebSocket support
-- **Model**: TensorFlow MobileNetV2 for image classification
+- Networking stack (VPC, subnets, security groups)
+- ECS Cluster with Fargate tasks
+- Application Load Balancers with proper health checks
+- IAM roles and policies for task execution
+- CloudWatch log groups for container logs
 
 ## Prerequisites
 
