@@ -4,9 +4,9 @@ Scalable microservices architecture for real-time image classification using AWS
 
 
 
-
-https://github.com/user-attachments/assets/9d135cd9-3133-4334-9cd8-c0f42023db6d
-
+<div align="center">
+  <video width="100%" max-width="800px" src="https://github.com/user-attachments/assets/9d135cd9-3133-4334-9cd8-c0f42023db6d"></video>
+</div>
 
 
  
