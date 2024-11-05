@@ -5,86 +5,45 @@ Scalable microservices architecture for real-time image classification using AWS
 An image classification application that uses MobileNetV2 to identify animals in images. The application consists of a FastAPI backend for WebSocket-based image processing and a Streamlit frontend for user interaction.
 
 ## Architecture
-
-```mermaid
-graph TD
-    %% Define external entities
-    Internet((Internet))
-
-    %% Define VPC and its components
+```
+graph TB
     subgraph VPC
-        subgraph ECS_Cluster [ECS Cluster]
-            BackendService[Fargate Backend Service]
-            FrontendService[Fargate Frontend Service]
+        subgraph "Private Subnets"
+            BE["Backend Service<br/>(Fargate)"]
+            FE["Frontend Service<br/>(Fargate)"]
         end
-
-        subgraph ECR_Repositories
-            BackendRepo[Backend ECR Repository]
-            FrontendRepo[Frontend ECR Repository]
-        end
-
-        subgraph IAM_Roles
-            ExecutionRole[Execution Role]
-            TaskRole[Task Role]
-        end
-
-        subgraph Security_Groups
-            FrontendSG[Frontend Security Group]
-            BackendSG[Backend Security Group]
-        end
-
-        subgraph Load_Balancers
-            FrontendALB[Frontend ALB]
-            BackendALB[Backend ALB]
-        end
-
-        subgraph Logging
-            LogGroup[CloudWatch Log Group]
+        
+        subgraph "ECS Cluster"
+            BE
+            FE
         end
     end
-
-    %% Internet to Load Balancers
-    Internet --> FrontendALB
-    Internet --> BackendALB
-
-    %% Load Balancers to Services
-    FrontendALB -->|HTTP:80| FrontendService
-    BackendALB -->|HTTP:80| BackendService
-
-    %% Services to Repositories
-    FrontendService -->|Uses Image| FrontendRepo
-    BackendService -->|Uses Image| BackendRepo
-
-    %% Services to IAM Roles
-    FrontendService -->|Uses| ExecutionRole
-    FrontendService -->|Uses| TaskRole
-    BackendService -->|Uses| ExecutionRole
-    BackendService -->|Uses| TaskRole
-
-    %% IAM Roles to Repositories
-    ExecutionRole -->|Pull from| BackendRepo
-    ExecutionRole -->|Pull from| FrontendRepo
-
-    %% Services to Security Groups
-    FrontendService --> FrontendSG
-    BackendService --> BackendSG
-
-    %% Security Group Rules
-    FrontendALB -->|Allows ingress on 8501| FrontendSG
-    FrontendService -->|Allows ingress on 8000| BackendSG
-    BackendALB -->|Allows ingress on 8000| BackendSG
-
-    %% Services to Logging
-    FrontendService -->|Logs to| LogGroup
-    BackendService -->|Logs to| LogGroup
-
-    %% Outputs
-    FrontendALB -->|Frontend URL| FrontendURL[Frontend Service URL]
-    BackendALB -->|Backend URL| BackendURL[Backend Service URL]
-
-    %% Styling for clarity
-    classDef external fill:#f9f,stroke:#333,stroke-width:2px;
-    class Internet external;
+    
+    Internet((Internet))
+    ECR[(ECR<br/>Repositories)]
+    
+    BE_ALB["Backend ALB"]
+    FE_ALB["Frontend ALB"]
+    
+    Internet --> BE_ALB
+    Internet --> FE_ALB
+    
+    BE_ALB --> BE
+    FE_ALB --> FE
+    
+    BE <--> FE
+    
+    ECR --> BE
+    ECR --> FE
+    
+    classDef default fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef alb fill:#ff9,stroke:#333,stroke-width:2px;
+    classDef service fill:#9ff,stroke:#333,stroke-width:2px;
+    classDef internet fill:#fff,stroke:#333,stroke-width:2px;
+    
+    class BE_ALB,FE_ALB alb;
+    class BE,FE service;
+    class Internet internet;
 ```
 
 ## Infrastructure
