@@ -13,44 +13,46 @@ Scalable microservices architecture for real-time image classification using AWS
 ## Architecture
 
 ```mermaid
-graph TB
-    subgraph VPC
-        subgraph "Private Subnets"
-            BE["Backend Service<br/>(Fargate)"]
-            FE["Frontend Service<br/>(Fargate)"]
+flowchart TB
+    subgraph internet["Internet"]
+        client((Internet))
+    end
+
+    subgraph vpc["VPC"]
+        subgraph alb["Load Balancers"]
+            balb["Backend ALB"]
+            falb["Frontend ALB"]
         end
         
-        subgraph "ECS Cluster"
-            BE
-            FE
+        subgraph private["Private Subnets"]
+            subgraph ecs["ECS Cluster"]
+                be["Backend Service\n(Fargate)"]
+                fe["Frontend Service\n(Fargate)"]
+            end
+        end
+
+        subgraph db["Database"]
+            dynamo[("DynamoDB")]
         end
     end
+
+    client --> falb
+    client --> balb
+    falb --> fe
+    balb --> be
+    fe <--> be
+    be <--> dynamo
+
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px
+    classDef vpc fill:#e9e9e9,stroke:#666
+    classDef alb fill:#FFE4B5,stroke:#d49d4f
+    classDef service fill:#B0E0E6,stroke:#4682B4
+    classDef database fill:#DDA0DD,stroke:#9370DB
     
-    Internet((Internet))
-    ECR[(ECR<br/>Repositories)]
-    
-    BE_ALB["Backend ALB"]
-    FE_ALB["Frontend ALB"]
-    
-    Internet --> BE_ALB
-    Internet --> FE_ALB
-    
-    BE_ALB --> BE
-    FE_ALB --> FE
-    
-    BE <--> FE
-    
-    ECR --> BE
-    ECR --> FE
-    
-    classDef default fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef alb fill:#ff9,stroke:#333,stroke-width:2px;
-    classDef service fill:#9ff,stroke:#333,stroke-width:2px;
-    classDef internet fill:#fff,stroke:#333,stroke-width:2px;
-    
-    class BE_ALB,FE_ALB alb;
-    class BE,FE service;
-    class Internet internet;
+    class vpc vpc
+    class balb,falb alb
+    class be,fe service
+    class dynamo database
 ```
 
 ### Key Components
